@@ -1,0 +1,100 @@
+#!/usr/bin/python
+#
+# Transform ranking data-set to binary data-set for multi-partite
+# pairwise ranking with binary classifiers.
+#
+# Copyright (C) 2012 Heidelberg University
+# 
+# Author: Sascha Fendrich
+# 
+#
+# usage: remap-pwr input_file
+#
+# This script transforms a ranking data set into a binary data set 
+# suitable to perform multi-partite pairwise ranking with binary
+# classifiers. For each ranking in the input file the corresponding
+# data vectors are partitioned by their rank. For each pair of vectors
+# from different partitions their vector difference is written to the
+# output file. A target value of +1 (or -1) means that the minuend
+# (or the subtrahend) is ranked higher. The data format is SVMlight's
+# sparse data format for ranking and for binary classification,
+# respectively (cf. http://www.cs.cornell.edu/people/tj/svm_light/).
+# The output file name is the input file name appended with ".pwr".
+# Each line is terminated by a comment string holding the original qid
+# and the original line numbers of the minuend and the subtrahend.
+#
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# See <http://www.gnu.org/licenses/>.
+
+import sys
+from itertools import combinations, product
+
+def make_pairs (query_data, output_file, current_qid):
+  for rank1, rank2 in combinations (sorted(query_data.iterkeys()), 2):
+    for (line1, vec1), (line2, vec2) in product (query_data[rank1], query_data[rank2]):
+      delta = vec1.copy ()
+      for key, value in vec2.iteritems():
+        delta[key] = delta.get (key, 0.0) - value
+      positive = '1 '
+      negative = '-1 '
+      for key in sorted(delta.iterkeys()):
+        positive += ('%s:%f ' % (key, delta[key]))
+        negative += ('%s:%f ' % (key, -delta[key]))
+      
+      positive += ('# qid:%s lines:%d-%d\n' % (current_qid, line1, line2))
+      negative += ('# qid:%s lines:%d-%d\n' % (current_qid, line2, line1))
+      output_file.write (positive) 
+      output_file.write (negative) 
+
+def main ():
+  if len (sys.argv) < 2:
+    print 'This is remap-pwr version 0.1alpha\nusage: remap-pwr input_file'
+    return None
+
+  input_name  = argv[1]
+  query_data  = {} # { rank: [(line_no, vector)] } 
+  current_qid = 0
+  line_no     = 0
+
+  output_file = open (input_name + '.pwr', 'w')
+
+  for line in open (input_name, 'r'):
+    data = line.strip().split('#',1)
+    rank, query, rest = data[0].split(' ', 2)
+    label, qid = query.split(':', 1)
+    line_no += 1
+    if label == 'qid':
+
+      # if qid changes write out current query
+      if current_qid != qid: 
+        if current_qid != 0:
+          make_pairs (query_data, output_file, current_qid)
+          query_data.clear ()
+        current_qid = qid
+
+      # transform rest to data_vector
+      tokens = rest.split ()
+      data_vector = {}
+      for token in tokens:
+        label, value = token.split (':', 1)
+        data_vector[label] = float (value)
+
+      s = query_data.setdefault (rank, [])
+      s.append ((line_no, data_vector))
+
+  # write last query
+  make_pairs (query_data, output_file, current_qid)
+
+
+if __name__ == '__main__':
+  main ()
